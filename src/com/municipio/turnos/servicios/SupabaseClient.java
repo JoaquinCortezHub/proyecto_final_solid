@@ -7,6 +7,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -17,6 +19,7 @@ public class SupabaseClient {
     private static final String SERVICE_ROLE_KEY = readRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
     private static final String SERVICIO_LICENCIA = "Licencia de conducir";
     private static final String SERVICIO_SOCIAL = "Asistencia social alimentaria";
+    private static final DateTimeFormatter FORMATO_SUPABASE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final HttpClient httpClient;
 
@@ -42,17 +45,34 @@ public class SupabaseClient {
             String servicio,
             String fechaHora
     ) throws IOException, InterruptedException {
-        int ciudadanoId = buscarOCrearCiudadano(dni, nombreCompleto, email, telefono);
+        registrarTurno(dni, nombreCompleto, email, telefono, false, servicio, fechaHora, 0.0, 0.0, 0.0);
+    }
+
+    public int registrarTurno(
+            String dni,
+            String nombreCompleto,
+            String email,
+            String telefono,
+            boolean mayor65,
+            String servicio,
+            String fechaHora,
+            double montoOriginal,
+            double descuentoAplicado,
+            double montoFinal
+    ) throws IOException, InterruptedException {
+        int ciudadanoId = buscarOCrearCiudadano(dni, nombreCompleto, email, telefono, mayor65);
         ServicioMunicipal servicioMunicipal = buscarServicio(servicio);
         int turnoId = crearTurno(dni, ciudadanoId, servicioMunicipal.idServicio(), fechaHora);
 
         if (servicioMunicipal.esArancelado()) {
-            crearPago(dni, turnoId, servicioMunicipal.costoBase());
+            crearPago(dni, turnoId, montoOriginal, descuentoAplicado, montoFinal);
         }
+
+        return turnoId;
     }
 
     public List<TurnoDetalle> obtenerTurnosPorDni(String dni) throws IOException, InterruptedException {
-        String select = "id_turno,fecha_hora,estado,servicios(nombre_servicio,es_arancelado,costo_base),pagos(monto_final,estado_pago),ciudadanos!inner(dni)";
+        String select = "id_turno,fecha_hora,estado,servicios(nombre_servicio,es_arancelado,costo_base),pagos(monto_original,descuento_aplicado,monto_final,estado_pago),ciudadanos!inner(dni,mayor_65)";
         String path = "/turnos?select=" + encode(select)
                 + "&ciudadanos.dni=eq." + encode(dni)
                 + "&order=fecha_hora.desc";
@@ -67,7 +87,10 @@ public class SupabaseClient {
                     extractString(objectJson, "estado"),
                     extractString(objectJson, "nombre_servicio"),
                     extractBoolean(objectJson, "es_arancelado"),
+                    extractBoolean(objectJson, "mayor_65"),
                     extractDouble(objectJson, "costo_base"),
+                    extractNullableDouble(objectJson, "monto_original"),
+                    extractNullableDouble(objectJson, "descuento_aplicado"),
                     extractNullableDouble(objectJson, "monto_final"),
                     extractNullableString(objectJson, "estado_pago")
             ));
@@ -77,7 +100,7 @@ public class SupabaseClient {
     }
 
     public Ciudadano buscarCiudadanoPorDni(String dni) throws IOException, InterruptedException {
-        String response = get("/ciudadanos?select=id_ciudadano,dni,nombre_completo,email,telefono&dni=eq."
+        String response = get("/ciudadanos?select=id_ciudadano,dni,nombre_completo,email,telefono,mayor_65&dni=eq."
                 + encode(dni) + "&limit=1", dni);
         Integer idCiudadano = extractNullableInt(response, "id_ciudadano");
 
@@ -90,7 +113,8 @@ public class SupabaseClient {
                 extractString(response, "dni"),
                 extractString(response, "nombre_completo"),
                 extractNullableString(response, "email"),
-                extractNullableString(response, "telefono")
+                extractNullableString(response, "telefono"),
+                extractBoolean(response, "mayor_65")
         );
     }
 
@@ -113,14 +137,39 @@ public class SupabaseClient {
             throw new IOException("El turno seleccionado no es arancelado.");
         }
 
-        delete("/turnos?id_turno=eq." + idTurno, dni);
+        String fechaPago = LocalDateTime.now().format(FORMATO_SUPABASE);
+        patch(
+                "/pagos?id_turno=eq." + idTurno,
+                "{\"estado_pago\":\"Pagado\",\"fecha_pago\":\"" + fechaPago + "\"}",
+                dni
+        );
+        patch("/turnos?id_turno=eq." + idTurno, "{\"estado\":\"Pagado\"}", dni);
+    }
+
+    public void cancelarTurno(String dni, int idTurno) throws IOException, InterruptedException {
+        List<TurnoDetalle> turnos = obtenerTurnosPorDni(dni);
+        boolean perteneceAlCiudadano = false;
+
+        for (TurnoDetalle turno : turnos) {
+            if (turno.idTurno() == idTurno) {
+                perteneceAlCiudadano = true;
+                break;
+            }
+        }
+
+        if (!perteneceAlCiudadano) {
+            throw new IOException("No existe un turno con ese ID para el DNI ingresado.");
+        }
+
+        patch("/turnos?id_turno=eq." + idTurno, "{\"estado\":\"Cancelado\"}", dni);
     }
 
     private int buscarOCrearCiudadano(
             String dni,
             String nombreCompleto,
             String email,
-            String telefono
+            String telefono,
+            boolean mayor65
     ) throws IOException, InterruptedException {
         String response = get("/ciudadanos?select=id_ciudadano&dni=eq." + encode(dni) + "&limit=1", dni);
         Integer idExistente = extractNullableInt(response, "id_ciudadano");
@@ -133,7 +182,8 @@ public class SupabaseClient {
                 + "\"dni\":\"" + escapeJson(dni) + "\","
                 + "\"nombre_completo\":\"" + escapeJson(nombreCompleto) + "\","
                 + "\"email\":\"" + escapeJson(email) + "\","
-                + "\"telefono\":\"" + escapeJson(telefono) + "\""
+                + "\"telefono\":\"" + escapeJson(telefono) + "\","
+                + "\"mayor_65\":" + mayor65
                 + "}";
 
         String createResponse = post("/ciudadanos", body, dni);
@@ -192,9 +242,17 @@ public class SupabaseClient {
         return extractInt(response, "id_turno");
     }
 
-    private void crearPago(String dni, int turnoId, double montoFinal) throws IOException, InterruptedException {
+    private void crearPago(
+            String dni,
+            int turnoId,
+            double montoOriginal,
+            double descuentoAplicado,
+            double montoFinal
+    ) throws IOException, InterruptedException {
         String body = "{"
                 + "\"id_turno\":" + turnoId + ","
+                + "\"monto_original\":" + montoOriginal + ","
+                + "\"descuento_aplicado\":" + descuentoAplicado + ","
                 + "\"monto_final\":" + montoFinal + ","
                 + "\"estado_pago\":\"Pendiente\""
                 + "}";
@@ -222,10 +280,11 @@ public class SupabaseClient {
         return send(request);
     }
 
-    private String delete(String path, String dni) throws IOException, InterruptedException {
+    private String patch(String path, String body, String dni) throws IOException, InterruptedException {
         HttpRequest request = requestBuilder(path, dni)
+                .header("Content-Type", "application/json")
                 .header("Prefer", "return=representation")
-                .DELETE()
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
                 .build();
 
         return send(request);
@@ -349,7 +408,10 @@ public class SupabaseClient {
             String estado,
             String nombreServicio,
             boolean esArancelado,
+            boolean mayor65,
             double costoBase,
+            Double montoOriginal,
+            Double descuentoAplicado,
             Double montoFinal,
             String estadoPago
     ) {
@@ -360,7 +422,8 @@ public class SupabaseClient {
             String dni,
             String nombreCompleto,
             String email,
-            String telefono
+            String telefono,
+            boolean mayor65
     ) {
     }
 }
