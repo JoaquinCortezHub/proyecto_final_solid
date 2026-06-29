@@ -1,9 +1,8 @@
 package com.municipio.turnos.ui;
 
 import com.municipio.turnos.servicios.GestorTurnos;
-import com.municipio.turnos.servicios.ResultadoTurno;
-import com.municipio.turnos.servicios.SolicitudTurno;
-import com.municipio.turnos.servicios.SupabaseClient;
+import com.municipio.turnos.servicios.records.ResultadoTurno;
+import com.municipio.turnos.servicios.records.SolicitudTurno;
 import com.municipio.turnos.servicios.SupabaseClient.Ciudadano;
 import com.municipio.turnos.servicios.SupabaseClient.TurnoDetalle;
 

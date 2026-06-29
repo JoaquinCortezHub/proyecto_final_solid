@@ -6,16 +6,14 @@ import com.municipio.turnos.ui.SistemaTurnosFrame;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 
 public class Main {
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> { //Con esto nos aseguramos de que los cambios en Swing se hagan en el hilo correcto
             try {
-                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-                SupabaseClient supabaseClient = new SupabaseClient();
-                GestorTurnos gestorTurnos = new GestorTurnos(supabaseClient);
-                new SistemaTurnosFrame(gestorTurnos).setVisible(true);
+                SupabaseClient supabaseClient = new SupabaseClient(); // DB
+                GestorTurnos gestorTurnos = new GestorTurnos(supabaseClient); //Lógica para agendar turnos
+                new SistemaTurnosFrame(gestorTurnos).setVisible(true); // Interfaz gráfica
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(
                         null,

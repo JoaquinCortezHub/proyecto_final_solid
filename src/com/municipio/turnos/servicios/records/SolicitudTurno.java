@@ -1,4 +1,4 @@
-package com.municipio.turnos.servicios;
+package com.municipio.turnos.servicios.records;
 
 public record SolicitudTurno(
         String dni,

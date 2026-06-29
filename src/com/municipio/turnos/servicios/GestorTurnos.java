@@ -4,6 +4,8 @@ import com.municipio.turnos.interfaces.TurnoArancelado;
 import com.municipio.turnos.interfaces.TurnoMunicipal;
 import com.municipio.turnos.modelos.TurnoLicencia;
 import com.municipio.turnos.modelos.TurnoSocial;
+import com.municipio.turnos.servicios.records.ResultadoTurno;
+import com.municipio.turnos.servicios.records.SolicitudTurno;
 
 import java.io.IOException;
 import java.time.LocalDate;
@@ -13,10 +15,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class GestorTurnos {
+    //CONSTANTES
     public static final String SERVICIO_LICENCIA = "Licencia de conducir";
     public static final String SERVICIO_SOCIAL = "Asistencia social alimentaria";
     public static final double PORCENTAJE_DESCUENTO_MAYOR_65 = 0.30;
 
+    //Adapta el formato de fecha y hora a lo que maneja Supabase
     private static final DateTimeFormatter FORMATO_SUPABASE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final SupabaseClient supabaseClient;
@@ -24,14 +28,14 @@ public class GestorTurnos {
     public GestorTurnos(SupabaseClient supabaseClient) {
         this.supabaseClient = supabaseClient;
     }
-
+    //Es la función principal que guarda los turnos generados en la db
     public ResultadoTurno sacarTurno(SolicitudTurno solicitud) throws IOException, InterruptedException {
         TurnoMunicipal turno = crearTurnoMunicipal(solicitud.servicio());
         double montoOriginal = calcularMontoOriginal(turno);
         double descuento = calcularDescuento(turno, solicitud.mayor65(), montoOriginal);
         double montoFinal = montoOriginal - descuento;
 
-        int idTurno = supabaseClient.registrarTurno(
+        int idTurno = supabaseClient.registrarTurno( //Guardamos el nuevo turno en Supabase
                 solicitud.dni(),
                 solicitud.nombreCompleto(),
                 solicitud.email(),

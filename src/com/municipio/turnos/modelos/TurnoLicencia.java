@@ -28,7 +28,6 @@ public class TurnoLicencia implements TurnoArancelado {
 
     @Override
     public double calcularCosto() {
-        // Lógica simplificada de costos
         return categoriaLicencia.equals("B1") ? 15000.0 : 20000.0;
     }
 
